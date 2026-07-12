@@ -78,8 +78,9 @@
   .dock button {
     appearance: none; border: 1px solid transparent; background: transparent; cursor: pointer;
     font-family: inherit; color: var(--chrome-dim);
-    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
-    padding: 9px 18px; border-radius: 100px; display: flex; align-items: center; gap: 9px;
+    font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 9px 13px; border-radius: 100px; display: flex; align-items: center; gap: 7px;
+    flex: none;
     transition: color .35s ease, background .35s ease;
   }
   .dock button .key {
@@ -171,7 +172,7 @@
     <span class="dot" id="statusDot"></span>
     <span id="statusText">ouvindo</span>
   </div>
-  <div class="hint">pressione 1 – 9 para trocar de cena</div>
+  <div class="hint">use ← → ou 1 – 9 para trocar de cena</div>
   <nav class="dock" id="dock" aria-label="Cenas"></nav>
 </div>
 
@@ -1018,15 +1019,148 @@ const Lava = {
 };
 
 /* ============================================================
+   FLUID FACTORY — Fluido's liquid engine fused with other effects
+   ============================================================ */
+function fluidScene(cfg) {
+  return {
+    id: cfg.id, label: cfg.label, theme: cfg.theme || "dark",
+    parts: [], prev: 0,
+    resize() {
+      const n = Math.min(cfg.count || 2000, Math.floor((W * H) / (cfg.density || 500)));
+      this.parts = Array.from({ length: n }, (_, i) => ({
+        x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0,
+        c: Math.random(), g: i % 2
+      }));
+    },
+    enter() { ctx.fillStyle = cfg.bg; ctx.fillRect(0, 0, W, H); },
+    draw(t, au) {
+      ctx.fillStyle = cfg.veil; ctx.fillRect(0, 0, W, H);
+      const cx = W / 2, cy = H / 2;
+      const onset = au.level - this.prev;
+      this.prev += (au.level - this.prev) * 0.3;
+      const impulse = (onset > 0.075 && !reduceMotion) ? 5 + au.level * 9 : 0;
+      const speed = (0.5 + au.level * 4.2 + au.bass * 1.6) * (reduceMotion ? 0.4 : 1);
+      const swirl = cfg.swirlBase + au.bass * cfg.swirlBass;
+
+      const sym = cfg.symmetry || 1;
+      const rots = [];
+      for (let k = 0; k < sym; k++) {
+        const a = (k / sym) * Math.PI * 2;
+        rots.push([Math.cos(a), Math.sin(a)]);
+      }
+
+      ctx.save();
+      ctx.globalCompositeOperation = cfg.composite || "lighter";
+      ctx.lineCap = "round";
+      for (const p of this.parts) {
+        const dir = (cfg.twoFields && p.g) ? -1 : 1;
+        const th = dir * (Math.sin(p.y * 0.009 + t * 0.4 + p.c * 2.5) * 1.8
+                        + Math.cos(p.x * 0.011 - t * 0.31) * 1.6
+                        + Math.sin((p.x + p.y) * 0.006 + t * 0.18) * 1.2
+                        + Math.sin(p.x * 0.021 - p.y * 0.017 + t * 0.5) * 0.7);
+        let fx = Math.cos(th), fy = Math.sin(th);
+        const dx = p.x - cx, dy = p.y - cy;
+        const d = Math.hypot(dx, dy) + 0.001;
+        fx += (-dy / d) * swirl * dir; fy += (dx / d) * swirl * dir;
+        if (impulse) { fx += (dx / d) * impulse; fy += (dy / d) * impulse; }
+        if (cfg.force) { const f = cfg.force(p, dx, dy, d, t, au); fx += f[0]; fy += f[1]; }
+
+        p.vx += (fx * speed - p.vx) * 0.12;
+        p.vy += (fy * speed - p.vy) * 0.12;
+        const ox = p.x, oy = p.y;
+        p.x += p.vx; p.y += p.vy;
+
+        let wrapped = false;
+        if (p.x < -10) { p.x = W + 10; wrapped = true; } else if (p.x > W + 10) { p.x = -10; wrapped = true; }
+        if (p.y < -10) { p.y = H + 10; wrapped = true; } else if (p.y > H + 10) { p.y = -10; wrapped = true; }
+        if (!wrapped) {
+          ctx.strokeStyle = cfg.color(p, au);
+          ctx.lineWidth = cfg.width ? cfg.width(p, au) : 1 + au.level * 1.6;
+          if (sym === 1) {
+            ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(p.x, p.y); ctx.stroke();
+          } else {
+            const rx0 = ox - cx, ry0 = oy - cy, rx1 = p.x - cx, ry1 = p.y - cy;
+            for (const [ca, sa] of rots) {
+              ctx.beginPath();
+              ctx.moveTo(cx + rx0 * ca - ry0 * sa, cy + rx0 * sa + ry0 * ca);
+              ctx.lineTo(cx + rx1 * ca - ry1 * sa, cy + rx1 * sa + ry1 * ca);
+              ctx.stroke();
+            }
+          }
+        }
+      }
+      ctx.restore();
+      cfg.post && cfg.post(t, au, cx, cy);
+    }
+  };
+}
+
+/* SOL — golden liquid orbiting a breathing heart (Fluido × Halo) */
+const Sol = fluidScene({
+  id: "sol", label: "Sol", bg: "#0f0902", veil: "rgba(14, 8, 2, 0.09)",
+  swirlBase: 0.6, swirlBass: 0.7,
+  force(p, dx, dy, d, t, au) {
+    // gentle solar gravity — the corona orbits without collapsing
+    const pull = 0.12 + au.bass * 0.10;
+    return [-(dx / d) * pull, -(dy / d) * pull];
+  },
+  color: (p, au) => `rgba(255, ${175 + p.c * 55 | 0}, ${70 + p.c * 115 | 0}, ${0.12 + au.level * 0.5})`,
+  post(t, au, cx, cy) {
+    // wobbling stroke rings only — a fill would saturate the trail canvas
+    const S = Math.min(W, H);
+    const R = S * (0.10 + au.level * 0.05 + au.bass * 0.03);
+    ctx.strokeStyle = `rgba(255, 235, 200, ${0.06 + au.level * 0.12})`;
+    ctx.lineWidth = 1.4;
+    Aura.blob(cx, cy, R, t * 1.2, 5.1, 0.07 + au.level * 0.1);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(255, 215, 160, ${0.04 + au.level * 0.09})`;
+    ctx.lineWidth = 1;
+    Aura.blob(cx, cy, R * 1.4, t * 0.8, 2.4, 0.05 + au.level * 0.08);
+    ctx.stroke();
+  }
+});
+
+/* NEON — two rival inks in opposite currents (magenta × cyan) */
+const Neon = fluidScene({
+  id: "neon", label: "Neon", bg: "#08050e", veil: "rgba(8, 5, 14, 0.09)",
+  swirlBase: 0.2, swirlBass: 0.45, twoFields: true,
+  color: (p, au) => p.g
+    ? `rgba(${238 + p.c * 17 | 0}, ${60 + p.c * 60 | 0}, ${170 + p.c * 60 | 0}, ${0.10 + au.level * 0.48})`
+    : `rgba(${50 + p.c * 50 | 0}, ${200 + p.c * 40 | 0}, ${240 + p.c * 15 | 0}, ${0.10 + au.level * 0.48})`
+});
+
+/* MANDALA — the liquid seen through 6-fold symmetry */
+const Mandala = fluidScene({
+  id: "mandala", label: "Mandala", bg: "#0b0724", veil: "rgba(11, 7, 36, 0.10)",
+  swirlBase: 0.45, swirlBass: 0.6, symmetry: 6, count: 650, density: 1500,
+  color: (p, au) => p.c < 0.55
+    ? `rgba(${45 + p.c * 100 | 0}, ${212 + p.c * 30 | 0}, ${200 + p.c * 55 | 0}, ${0.09 + au.level * 0.40})`
+    : `rgba(${160 + p.c * 60 | 0}, ${110 + p.c * 40 | 0}, 250, ${0.09 + au.level * 0.40})`
+});
+
+/* NANQUIM — India ink flowing on paper (light) */
+const Nanquim = fluidScene({
+  id: "nanquim", label: "Nanquim", theme: "light",
+  bg: "#f8f5ee", veil: "rgba(247, 244, 236, 0.08)",
+  composite: "source-over",
+  swirlBase: 0.25, swirlBass: 0.4,
+  color: (p, au) => p.c < 0.03
+    ? `rgba(178, 34, 28, ${0.04 + au.level * 0.20})`
+    : `rgba(${18 + p.c * 20 | 0}, ${42 + p.c * 25 | 0}, ${52 + p.c * 25 | 0}, ${0.045 + au.level * 0.28})`,
+  width: (p, au) => 0.8 + au.level * 1.9
+});
+
+/* ============================================================
    APP — scene switching, chrome, loop
    ============================================================ */
-const scenes = [Halo, Aura, Espectro, Mare, Constelacao, Fluido, Tinta, Aquarela, Lava];
+const scenes = [Halo, Aura, Espectro, Mare, Constelacao, Fluido, Tinta, Aquarela, Lava, Sol, Neon, Mandala, Nanquim];
 let current = 0;
 
 const dock = document.getElementById("dock");
 scenes.forEach((s, i) => {
   const b = document.createElement("button");
-  b.innerHTML = `<span class="key">${i + 1}</span>${s.label}`;
+  const key = i < 9 ? String(i + 1) : i === 9 ? "0" : null;
+  b.innerHTML = (key ? `<span class="key">${key}</span>` : "") + s.label;
   b.addEventListener("click", () => setScene(i));
   dock.appendChild(b);
 });
@@ -1042,7 +1176,10 @@ function setScene(i) {
 
 window.addEventListener("keydown", e => {
   const n = parseInt(e.key, 10);
-  if (n >= 1 && n <= scenes.length) setScene(n - 1);
+  if (n >= 1 && n <= Math.min(9, scenes.length)) setScene(n - 1);
+  else if (e.key === "0" && scenes.length > 9) setScene(9);
+  else if (e.key === "ArrowRight") setScene((current + 1) % scenes.length);
+  else if (e.key === "ArrowLeft") setScene((current - 1 + scenes.length) % scenes.length);
 });
 
 function toast(msg) {
