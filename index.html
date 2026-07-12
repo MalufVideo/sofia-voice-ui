@@ -1041,6 +1041,7 @@ function fluidScene(cfg) {
       const impulse = (onset > 0.075 && !reduceMotion) ? 5 + au.level * 9 : 0;
       const speed = (0.5 + au.level * 4.2 + au.bass * 1.6) * (reduceMotion ? 0.4 : 1);
       const swirl = cfg.swirlBase + au.bass * cfg.swirlBass;
+      cfg.pre && cfg.pre(t, au, cx, cy);
 
       const sym = cfg.symmetry || 1;
       const rots = [];
@@ -1150,10 +1151,65 @@ const Nanquim = fluidScene({
   width: (p, au) => 0.8 + au.level * 1.9
 });
 
+/* MAGMA — molten pools with liquid streams orbiting them (Lava × Fluido) */
+const magmaBlobs = [];
+function initMagmaBlobs() {
+  magmaBlobs.length = 0;
+  const cols = ["236, 72, 153", "139, 92, 246", "251, 146, 60", "45, 212, 191", "253, 186, 116"];
+  cols.forEach((col, i) => magmaBlobs.push({
+    col, band: i % 3, x: W / 2, y: H / 2,
+    fx: 0.11 + Math.random() * 0.2, fy: 0.09 + Math.random() * 0.18,
+    px: Math.random() * Math.PI * 2, py: Math.random() * Math.PI * 2,
+    rx: 0.16 + Math.random() * 0.16, ry: 0.13 + Math.random() * 0.15,
+    r: 60, seed: Math.random() * 10
+  }));
+}
+const Magma = fluidScene({
+  id: "magma", label: "Magma", bg: "#0d0410", veil: "rgba(13, 4, 16, 0.09)",
+  swirlBase: 0.12, swirlBass: 0.25,
+  pre(t, au, cx, cy) {
+    const S = Math.min(W, H);
+    const tt = t * (reduceMotion ? 0.35 : 1);
+    for (const b of magmaBlobs) {
+      const drive = b.band === 0 ? au.bass : b.band === 1 ? au.mid : au.treble;
+      b.x = cx + Math.sin(tt * b.fx + b.px) * W * b.rx;
+      b.y = cy + Math.sin(tt * b.fy + b.py) * H * b.ry;
+      b.r = S * (0.10 + drive * 0.11 + au.level * 0.03);
+      b.drive = drive;
+      // dim molten pool under the streams — low alpha, trails-safe
+      const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r * 1.6);
+      g.addColorStop(0, `rgba(${b.col}, ${0.030 + drive * 0.035})`);
+      g.addColorStop(1, `rgba(${b.col}, 0)`);
+      ctx.fillStyle = g;
+      Aura.blob(b.x, b.y, b.r * 1.6, tt * 0.8, b.seed, 0.10);
+      ctx.fill();
+    }
+  },
+  force(p, dx, dy, d, t, au) {
+    // captured by the nearest pool: pulled to its rim, swirled around it
+    let best = null, bd = 1e9;
+    for (const b of magmaBlobs) {
+      const ddx = b.x - p.x, ddy = b.y - p.y;
+      const dist = ddx * ddx + ddy * ddy;
+      if (dist < bd) { bd = dist; best = b; }
+    }
+    p.near = best;
+    const db = Math.sqrt(bd) + 0.001;
+    const ux = (best.x - p.x) / db, uy = (best.y - p.y) / db;
+    const pull = db < best.r * 0.55 ? -0.7 : 0.18 + best.drive * 0.55;
+    return [ux * pull - uy * 0.55, uy * pull + ux * 0.55];
+  },
+  color: (p, au) => `rgba(${p.near ? p.near.col : "236, 72, 153"}, ${0.10 + au.level * 0.45})`
+});
+{
+  const _mr = Magma.resize.bind(Magma);
+  Magma.resize = () => { _mr(); initMagmaBlobs(); };
+}
+
 /* ============================================================
    APP — scene switching, chrome, loop
    ============================================================ */
-const scenes = [Halo, Aura, Espectro, Mare, Constelacao, Fluido, Tinta, Aquarela, Lava, Sol, Neon, Mandala, Nanquim];
+const scenes = [Halo, Aura, Espectro, Mare, Constelacao, Fluido, Tinta, Aquarela, Lava, Sol, Neon, Mandala, Nanquim, Magma];
 let current = 0;
 
 const dock = document.getElementById("dock");
