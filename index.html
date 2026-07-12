@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sofia — Presença de Voz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Space+Grotesk:wght@300..600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --chrome: rgba(240, 248, 246, 0.92);
+    --chrome-dim: rgba(240, 248, 246, 0.45);
+    --chrome-line: rgba(240, 248, 246, 0.16);
+    --dock-bg: rgba(10, 18, 17, 0.42);
+    --accent: #2dd4bf;
+  }
+  body[data-theme="light"] {
+    --chrome: rgba(18, 42, 48, 0.92);
+    --chrome-dim: rgba(18, 42, 48, 0.5);
+    --chrome-line: rgba(18, 42, 48, 0.18);
+    --dock-bg: rgba(247, 244, 236, 0.55);
+    --accent: #0f766e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #010c0b; }
+  body {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    color: var(--chrome);
+    transition: color .6s ease;
+  }
+  canvas#stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+
+  /* ---------- chrome ---------- */
+  .chrome { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; transition: opacity 1s ease .2s; }
+  body.live .chrome { opacity: 1; }
+
+  .brand {
+    position: absolute; top: 28px; left: 34px; display: flex; align-items: baseline; gap: 14px;
+  }
+  .brand .word {
+    font-family: "Fraunces", Georgia, serif; font-weight: 420; font-size: 21px;
+    letter-spacing: .34em; text-transform: uppercase;
+  }
+  .brand .scene-name {
+    font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--chrome-dim); border-left: 1px solid var(--chrome-line); padding-left: 14px;
+    transition: color .6s ease;
+  }
+
+  .status {
+    position: absolute; top: 28px; right: 34px; display: flex; align-items: center; gap: 9px;
+    font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--chrome-dim);
+  }
+  .status .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent); transform: scale(var(--pulse, 1));
+  }
+
+  .hint {
+    position: absolute; bottom: 108px; width: 100%; text-align: center;
+    font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--chrome-dim);
+    opacity: 0; transition: opacity 1.2s ease;
+  }
+  body.live .hint { opacity: 1; }
+  body.hint-done .hint { opacity: 0 !important; }
+
+  /* ---------- dock ---------- */
+  .dock {
+    position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; padding: 6px;
+    background: var(--dock-bg); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--chrome-line); border-radius: 100px;
+    pointer-events: auto; transition: background .6s ease, border-color .6s ease;
+  }
+  .dock button {
+    appearance: none; border: 1px solid transparent; background: transparent; cursor: pointer;
+    font-family: inherit; color: var(--chrome-dim);
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    padding: 9px 18px; border-radius: 100px; display: flex; align-items: center; gap: 9px;
+    transition: color .35s ease, background .35s ease;
+  }
+  .dock button .key {
+    font-size: 9px; opacity: .55; border: 1px solid var(--chrome-line); border-radius: 5px;
+    padding: 1px 5px; line-height: 1.3;
+  }
+  .dock button:hover { color: var(--chrome); }
+  .dock button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dock button.on { color: var(--chrome); background: rgba(127, 200, 190, 0.14); border-color: var(--chrome-line); }
+  body[data-theme="light"] .dock button.on { background: rgba(15, 118, 110, 0.1); }
+
+  /* ---------- start overlay ---------- */
+  .gate {
+    position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 0; text-align: center;
+    background: radial-gradient(120% 90% at 50% 115%, #0a2f2b 0%, #03211f 45%, #010c0b 100%);
+    transition: opacity .9s ease, visibility .9s;
+  }
+  .gate.closed { opacity: 0; visibility: hidden; }
+  .gate .halo {
+    width: 130px; height: 130px; border-radius: 50%; margin-bottom: 44px; position: relative;
+    background: radial-gradient(circle at 42% 38%, rgba(190, 250, 240, .95), rgba(45, 212, 191, .55) 42%, rgba(45, 212, 191, .08) 72%);
+    filter: blur(.4px);
+    animation: breathe 4.2s ease-in-out infinite;
+  }
+  .gate .halo::after {
+    content: ""; position: absolute; inset: -26px; border-radius: 50%;
+    border: 1px solid rgba(45, 212, 191, .25);
+    animation: breathe 4.2s ease-in-out infinite reverse;
+  }
+  @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+  @media (prefers-reduced-motion: reduce) {
+    .gate .halo, .gate .halo::after { animation: none; }
+  }
+  .gate h1 {
+    font-family: "Fraunces", Georgia, serif; font-weight: 380; font-size: clamp(44px, 7vw, 76px);
+    letter-spacing: .3em; text-indent: .3em; text-transform: uppercase; color: #f3efe4;
+  }
+  .gate p {
+    margin-top: 18px; font-size: 12px; letter-spacing: .3em; text-transform: uppercase;
+    color: rgba(190, 227, 221, .55);
+  }
+  .gate .actions { margin-top: 58px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .gate button {
+    appearance: none; cursor: pointer; font-family: inherit;
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    padding: 16px 34px; border-radius: 100px; transition: transform .25s ease, background .25s ease, color .25s ease;
+  }
+  .gate button:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 3px; }
+  .gate .mic {
+    background: #f3efe4; color: #04211e; border: 1px solid #f3efe4;
+  }
+  .gate .mic:hover { transform: translateY(-2px); }
+  .gate .demo {
+    background: transparent; color: rgba(190, 227, 221, .8); border: 1px solid rgba(190, 227, 221, .3);
+  }
+  .gate .demo:hover { color: #f3efe4; border-color: rgba(190, 227, 221, .6); }
+  .gate .note { margin-top: 26px; font-size: 11px; letter-spacing: .12em; color: rgba(190, 227, 221, .35); text-transform: none; }
+
+  .toast {
+    position: fixed; top: 74px; left: 50%; transform: translate(-50%, -12px); z-index: 20;
+    font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    background: rgba(10, 18, 17, .8); border: 1px solid var(--chrome-line); color: var(--chrome);
+    padding: 12px 22px; border-radius: 100px; opacity: 0; pointer-events: none;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 640px) {
+    .brand { top: 20px; left: 20px; }
+    .status { top: 22px; right: 20px; }
+    .brand .scene-name { display: none; }
+    .dock button { padding: 9px 13px; }
+    .dock button .key { display: none; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body data-theme="dark">
+
+<canvas id="stage"></canvas>
+
+<div class="chrome">
+  <div class="brand">
+    <span class="word">Sofia</span>
+    <span class="scene-name" id="sceneName">Aura</span>
+  </div>
+  <div class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">ouvindo</span>
+  </div>
+  <div class="hint">pressione 1 – 4 para trocar de cena</div>
+  <nav class="dock" id="dock" aria-label="Cenas"></nav>
+</div>
+
+<div class="gate" id="gate">
+  <div class="halo" aria-hidden="true"></div>
+  <h1>Sofia</h1>
+  <p>presença de voz &nbsp;·&nbsp; ao vivo</p>
+  <div class="actions">
+    <button class="mic" id="btnMic">Ativar microfone</button>
+    <button class="demo" id="btnDemo">Ver em modo demo</button>
+  </div>
+  <div class="note">O áudio nunca sai deste navegador — nada é gravado ou enviado.</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   AUDIO ENGINE — mic or synthesized demo, same output surface:
+   { level, bass, mid, treble, freq[], wave[] }
+   ============================================================ */
+const AudioEngine = {
+  mode: null,             // 'mic' | 'demo'
+  ctx: null, analyser: null,
+  freq: new Uint8Array(512),
+  wave: new Uint8Array(1024),
+  level: 0, bass: 0, mid: 0, treble: 0,
+  _raw: { level: 0, bass: 0, mid: 0, treble: 0 },
+  _demo: { phase: "pause", t: 0, dur: 1.2, env: 0, seed: Math.random() * 100 },
+
+  async startMic() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+    });
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = this.ctx.createMediaStreamSource(stream);
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 2048;
+    this.analyser.smoothingTimeConstant = 0.78;
+    src.connect(this.analyser);
+    this.freq = new Uint8Array(this.analyser.frequencyBinCount);
+    this.wave = new Uint8Array(this.analyser.fftSize);
+    this.mode = "mic";
+  },
+
+  startDemo() { this.mode = "demo"; },
+
+  /* speech-like synthetic spectrum: bursts of "phrases" with syllabic ripple */
+  _updateDemo(dt, now) {
+    const d = this._demo;
+    d.t += dt;
+    if (d.t > d.dur) {
+      d.t = 0;
+      if (d.phase === "talk") { d.phase = "pause"; d.dur = 0.35 + Math.random() * 1.3; }
+      else { d.phase = "talk"; d.dur = 0.9 + Math.random() * 2.4; }
+    }
+    const syllable = 0.55 + 0.45 * Math.abs(Math.sin(now * 6.1 + Math.sin(now * 2.3) * 2));
+    const target = d.phase === "talk" ? 0.28 + 0.5 * syllable : 0.015;
+    d.env += (target - d.env) * (target > d.env ? 0.28 : 0.07);
+
+    const N = this.freq.length;
+    for (let i = 0; i < N; i++) {
+      const x = i / N;
+      // voice body + two moving formant humps + rolloff
+      const body = Math.exp(-x * 9);
+      const f1 = Math.exp(-Math.pow((i - (14 + 5 * Math.sin(now * 1.7))) / 7, 2));
+      const f2 = Math.exp(-Math.pow((i - (38 + 9 * Math.sin(now * 0.9 + 2))) / 12, 2)) * 0.7;
+      const jitter = 0.82 + 0.18 * Math.sin(now * 21 + i * 1.7 + d.seed);
+      this.freq[i] = Math.max(0, Math.min(255, d.env * (body + f1 + f2) * jitter * 235));
+    }
+    const W = this.wave.length;
+    for (let i = 0; i < W; i++) {
+      const s = Math.sin(i * 0.055 + now * 41) * 0.6
+              + Math.sin(i * 0.021 + now * 23) * 0.3
+              + Math.sin(i * 0.13 + now * 67) * 0.22;
+      this.wave[i] = 128 + s * d.env * 92;
+    }
+  },
+
+  _band(a, b) {
+    let s = 0;
+    for (let i = a; i < b; i++) s += this.freq[i];
+    return s / ((b - a) * 255);
+  },
+
+  update(dt, now) {
+    if (this.mode === "mic" && this.analyser) {
+      this.analyser.getByteFrequencyData(this.freq);
+      this.analyser.getByteTimeDomainData(this.wave);
+    } else if (this.mode === "demo") {
+      this._updateDemo(dt, now);
+    } else return;
+
+    // RMS of waveform → level
+    let sum = 0;
+    for (let i = 0; i < this.wave.length; i += 2) {
+      const v = (this.wave[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / (this.wave.length / 2));
+    const r = this._raw;
+    r.level = Math.min(1, rms * 2.6);
+    const n = this.freq.length;
+    r.bass = this._band(1, Math.floor(n * 0.03) + 2);
+    r.mid = this._band(Math.floor(n * 0.03) + 2, Math.floor(n * 0.18));
+    r.treble = Math.min(1, this._band(Math.floor(n * 0.18), Math.floor(n * 0.6)) * 2.2);
+
+    // fast attack, slow release
+    for (const k of ["level", "bass", "mid", "treble"]) {
+      const t = r[k];
+      this[k] += (t - this[k]) * (t > this[k] ? 0.38 : 0.075);
+    }
+  }
+};
+
+/* ============================================================
+   STAGE
+   ============================================================ */
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  scenes.forEach(s => s.resize && s.resize());
+}
+window.addEventListener("resize", resize);
+
+/* ============================================================
+   SCENE 1 — AURA · the breathing orb
+   ============================================================ */
+const Aura = {
+  id: "aura", label: "Aura", theme: "dark",
+  orbiters: [],
+  resize() {
+    this.orbiters = Array.from({ length: 70 }, () => ({
+      a: Math.random() * Math.PI * 2,
+      r: 0.55 + Math.random() * 0.9,        // × orb radius
+      sp: (0.1 + Math.random() * 0.5) * (Math.random() < 0.5 ? -1 : 1),
+      s: 0.6 + Math.random() * 1.6
+    }));
+  },
+  blob(cx, cy, R, t, seed, wobble) {
+    ctx.beginPath();
+    const P = 120;
+    for (let i = 0; i <= P; i++) {
+      const a = (i / P) * Math.PI * 2;
+      const n = Math.sin(a * 3 + t * 0.9 + seed) * 0.5
+              + Math.sin(a * 5 - t * 1.3 + seed * 2) * 0.3
+              + Math.sin(a * 8 + t * 2.1 + seed * 3) * 0.2;
+      const r = R * (1 + n * wobble);
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  },
+  draw(t, au) {
+    const g = ctx.createRadialGradient(W / 2, H * 1.1, 0, W / 2, H * 1.1, Math.max(W, H) * 1.2);
+    g.addColorStop(0, "#0a2f2b"); g.addColorStop(0.45, "#03211f"); g.addColorStop(1, "#010c0b");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H / 2 - 14;
+    const base = Math.min(W, H) * 0.17;
+    const R = base * (1 + au.level * 0.5 + au.bass * 0.22);
+    const wob = 0.03 + au.level * 0.13 + au.treble * 0.06;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    // outer halos
+    const layers = [
+      { c: "45, 212, 191", k: 1.9, a: 0.07 + au.level * 0.14, seed: 0.0, w: wob * 1.5 },
+      { c: "103, 232, 249", k: 1.45, a: 0.10 + au.level * 0.16, seed: 2.1, w: wob * 1.2 },
+      { c: "45, 212, 191", k: 1.12, a: 0.18 + au.level * 0.24, seed: 4.4, w: wob }
+    ];
+    for (const L of layers) {
+      const rg = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * L.k);
+      rg.addColorStop(0, `rgba(${L.c}, ${L.a})`);
+      rg.addColorStop(0.7, `rgba(${L.c}, ${L.a * 0.55})`);
+      rg.addColorStop(1, `rgba(${L.c}, 0)`);
+      ctx.fillStyle = rg;
+      this.blob(cx, cy, R * L.k, t, L.seed, L.w);
+      ctx.fill();
+    }
+
+    // core
+    const core = ctx.createRadialGradient(cx - R * 0.12, cy - R * 0.16, 0, cx, cy, R * 0.72);
+    core.addColorStop(0, `rgba(243, 239, 228, ${0.75 + au.level * 0.25})`);
+    core.addColorStop(0.4, `rgba(178, 245, 234, ${0.4 + au.level * 0.3})`);
+    core.addColorStop(1, "rgba(45, 212, 191, 0)");
+    ctx.fillStyle = core;
+    this.blob(cx, cy, R * 0.72, t * 1.2, 7.7, wob * 0.7);
+    ctx.fill();
+
+    // orbiting motes
+    for (const o of this.orbiters) {
+      o.a += o.sp * (0.004 + au.level * 0.02) * (reduceMotion ? 0.4 : 1);
+      const or = R * (0.85 + o.r * (0.6 + au.mid * 0.8));
+      const x = cx + Math.cos(o.a) * or, y = cy + Math.sin(o.a) * or * 0.92;
+      ctx.fillStyle = `rgba(190, 250, 240, ${0.10 + au.level * 0.5 * o.r * 0.4})`;
+      ctx.beginPath(); ctx.arc(x, y, o.s * (0.7 + au.level), 0, Math.PI * 2); ctx.fill();
+    }
+
+    // thin echo ring on speech
+    if (au.level > 0.04) {
+      ctx.strokeStyle = `rgba(103, 232, 249, ${au.level * 0.35})`;
+      ctx.lineWidth = 1;
+      this.blob(cx, cy, R * (1.55 + au.bass * 0.4), t * 0.7, 9.2, wob * 0.8);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // wordmark
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.font = `300 ${Math.min(15, W * 0.02)}px "Fraunces", Georgia, serif`;
+    ctx.fillStyle = `rgba(243, 239, 228, ${0.35 + au.level * 0.5})`;
+    const word = "S O F I A";
+    ctx.fillText(word, cx, Math.min(cy + R * 1.9 + 40, H - 118));
+    ctx.restore();
+  }
+};
+
+/* ============================================================
+   SCENE 2 — ESPECTRO · mirrored strand cathedral
+   ============================================================ */
+const Espectro = {
+  id: "espectro", label: "Espectro", theme: "dark",
+  peaks: [],
+  resize() { this.peaks = new Array(80).fill(0); },
+  draw(t, au) {
+    ctx.fillStyle = "#0b0806"; ctx.fillRect(0, 0, W, H);
+    // faint warm floor glow
+    const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.6);
+    g.addColorStop(0, `rgba(120, 60, 30, ${0.10 + au.level * 0.12})`);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    // center-out symmetric: low voice bins at center, highs at the edges
+    const N = 80, cy = H / 2, cx = W / 2;
+    const margin = Math.max(40, W * 0.06);
+    const half = (W - margin * 2) / 2;
+    const maxH = H * 0.36;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    for (let i = 0; i < N; i++) {
+      const frac = i / (N - 1);                      // 0 = center, 1 = edge
+      const bin = 1 + Math.floor(Math.pow(frac, 1.35) * au.freq.length * 0.34);
+      let v = (au.freq[bin] / 255) * (0.65 + frac * 1.5);  // tilt compensation
+      v = Math.min(1, v);
+      const h = Math.max(2.5, v * v * maxH * (1 + au.level * 0.4));
+      if (h > this.peaks[i]) this.peaks[i] = h;
+      else this.peaks[i] = Math.max(2.5, this.peaks[i] - (reduceMotion ? 1.2 : 2.6));
+
+      // warm amber core → rose edges
+      const rr = Math.round(250 - 6 * frac), gg = Math.round(186 - 100 * frac), bb = Math.round(70 + 75 * frac);
+      ctx.strokeStyle = `rgba(${rr}, ${gg}, ${bb}, ${0.22 + v * 0.78})`;
+      ctx.lineWidth = 2.4;
+      ctx.shadowColor = `rgba(${rr}, ${gg}, ${bb}, 0.9)`;
+      ctx.shadowBlur = 4 + v * 30;
+
+      const dx = frac * half;
+      for (const x of (i === 0 ? [cx] : [cx - dx, cx + dx])) {
+        ctx.beginPath(); ctx.moveTo(x, cy - h); ctx.lineTo(x, cy + h); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = `rgba(255, 236, 200, ${0.22 + v * 0.6})`;
+        ctx.fillRect(x - 1.4, cy - this.peaks[i] - 6, 2.8, 2.2);
+        ctx.fillRect(x - 1.4, cy + this.peaks[i] + 4, 2.8, 2.2);
+        ctx.shadowBlur = 4 + v * 30;
+      }
+    }
+    // center hairline
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255, 220, 180, 0.14)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(margin - 14, cy); ctx.lineTo(W - margin + 14, cy); ctx.stroke();
+    ctx.restore();
+  }
+};
+
+/* ============================================================
+   SCENE 3 — MARÉ · ink ribbons on paper (light)
+   ============================================================ */
+const Mare = {
+  id: "mare", label: "Maré", theme: "light",
+  draw(t, au) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#f8f5ee"); g.addColorStop(1, "#eee9dc");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    const amp = (10 + au.level * H * 0.13);
+    const steps = 160;
+
+    // heavily smoothed waveform → calligraphic swell, not jitter
+    const raw = new Float32Array(steps + 1);
+    const win = 60;
+    for (let i = 0; i <= steps; i++) {
+      const c = Math.floor((i / steps) * (au.wave.length - 1 - win));
+      let s = 0;
+      for (let j = 0; j < win; j++) s += au.wave[c + j] - 128;
+      raw[i] = (s / win) / 128;
+    }
+    // second pass: box-blur along the curve for a silky line
+    const sm = new Float32Array(steps + 1);
+    for (let i = 0; i <= steps; i++) {
+      let s = 0, n = 0;
+      for (let j = -5; j <= 5; j++) {
+        const k = i + j;
+        if (k >= 0 && k <= steps) { s += raw[k]; n++; }
+      }
+      sm[i] = s / n;
+    }
+
+    const ribbons = [
+      { col: "rgba(30, 58, 95, 0.18)",   w: 3.6, off: -0.15, ph: 2.6, f: 0.7, sp: 0.5, k: 1.0 },
+      { col: "rgba(15, 118, 110, 0.30)", w: 1.3, off: -0.075, ph: 3.7, f: 0.9, sp: 0.8, k: 0.9 },
+      { col: "rgba(15, 118, 110, 0.75)", w: 2.6, off:  0.00, ph: 0.0, f: 1.1, sp: 0.65, k: 1.0 },
+      { col: "rgba(30, 58, 95, 0.60)",   w: 1.8, off:  0.075, ph: 1.9, f: 1.4, sp: 0.9, k: 0.8 },
+      { col: "rgba(120, 113, 108, 0.35)",w: 1.1, off:  0.15, ph: 5.1, f: 0.8, sp: 0.55, k: 0.6 }
+    ];
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    const tt = t * (reduceMotion ? 0.35 : 1);
+    for (const rb of ribbons) {
+      const cy = H * (0.55 + rb.off);
+      ctx.strokeStyle = rb.col; ctx.lineWidth = rb.w;
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const x = (i / steps) * W;
+        const u = i / steps;
+        const y = cy
+          + Math.sin(u * Math.PI * 2 * rb.f - tt * rb.sp + rb.ph) * amp * rb.k
+          + Math.sin(u * Math.PI * 5.3 * rb.f - tt * 1.4 + rb.ph * 2) * amp * 0.22 * rb.k
+          + sm[i] * amp * 1.1 * rb.k;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // editorial word
+    ctx.save();
+    ctx.textAlign = "left";
+    ctx.font = `italic 340 ${Math.min(120, W * 0.1)}px "Fraunces", Georgia, serif`;
+    ctx.fillStyle = "rgba(18, 42, 48, 0.10)";
+    ctx.fillText("maré", W * 0.06, H * 0.30);
+    ctx.font = `400 11px "Space Grotesk", sans-serif`;
+    ctx.fillStyle = "rgba(18, 42, 48, 0.45)";
+    const lvl = Math.round(au.level * 100).toString().padStart(2, "0");
+    ctx.fillText(`NÍVEL DA VOZ — ${lvl}`, W * 0.062, H * 0.30 + 26);
+    ctx.restore();
+  }
+};
+
+/* ============================================================
+   SCENE 4 — CONSTELAÇÃO · voice galaxy
+   ============================================================ */
+const Constelacao = {
+  id: "constelacao", label: "Constelação", theme: "dark",
+  stars: [], bgStars: [],
+  resize() {
+    const n = Math.min(1300, Math.floor((W * H) / 1000));
+    const ARMS = 3;
+    this.stars = Array.from({ length: n }, () => {
+      const band = Math.random();          // 0 bass core → 1 treble rim
+      const r0 = 0.07 + Math.pow(band, 0.75) * 0.98;
+      const arm = Math.floor(Math.random() * ARMS);
+      // gaussian-ish scatter around the arm, tighter near the core
+      const scatter = (Math.random() + Math.random() + Math.random() - 1.5) * (0.22 + r0 * 0.3);
+      return {
+        a0: arm * (Math.PI * 2 / ARMS) + r0 * 3.4 + scatter,
+        r0, band,
+        s: 0.4 + Math.pow(Math.random(), 2.2) * 2.6,
+        tw: Math.random() * Math.PI * 2,
+        gold: Math.random() < 0.18
+      };
+    });
+    this.bgStars = Array.from({ length: 140 }, () => ({
+      x: Math.random(), y: Math.random(), s: 0.4 + Math.random() * 0.9, tw: Math.random() * Math.PI * 2
+    }));
+  },
+  draw(t, au) {
+    const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.75);
+    g.addColorStop(0, "#120b30"); g.addColorStop(0.55, "#0a0620"); g.addColorStop(1, "#03020d");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H / 2;
+    const maxR = Math.min(W, H) * 0.46;
+    const tilt = 0.62;                                     // galaxy seen at an angle
+    const rot = t * (reduceMotion ? 0.008 : 0.02);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    // distant fixed stars
+    for (const b of this.bgStars) {
+      const tw = 0.35 + 0.3 * Math.sin(t * 1.1 + b.tw);
+      ctx.fillStyle = `rgba(200, 200, 235, ${tw * 0.35})`;
+      ctx.fillRect(b.x * W, b.y * H, b.s, b.s);
+    }
+
+    // core
+    const coreR = maxR * (0.06 + au.bass * 0.10 + au.level * 0.04);
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.4);
+    core.addColorStop(0, `rgba(255, 250, 235, ${0.5 + au.level * 0.45})`);
+    core.addColorStop(0.3, `rgba(196, 181, 253, ${0.22 + au.level * 0.25})`);
+    core.addColorStop(1, "rgba(139, 92, 246, 0)");
+    ctx.fillStyle = core;
+    ctx.beginPath(); ctx.arc(cx, cy, coreR * 2.4, 0, Math.PI * 2); ctx.fill();
+
+    for (const st of this.stars) {
+      const drive = st.band < 0.33 ? au.bass : st.band < 0.66 ? au.mid : au.treble;
+      // deterministic angle keeps the spiral arms coherent while rotating
+      const a = st.a0 + rot * (1.6 - st.r0) + drive * 0.10 * Math.sin(t * 3 + st.tw);
+      const rr = maxR * st.r0 * (1 + drive * 0.42 + au.level * 0.1);
+      const breathe = Math.sin(t * 0.7 + st.tw) * maxR * 0.012;
+      const x = cx + Math.cos(a) * (rr + breathe);
+      const y = cy + Math.sin(a) * (rr + breathe) * tilt;
+
+      const twinkle = 0.5 + 0.5 * Math.sin(t * 2.6 + st.tw * 3);
+      const alpha = Math.min(1, (0.20 + drive * 1.1) * twinkle + au.level * 0.10);
+      ctx.fillStyle = st.gold
+        ? `rgba(251, 213, 130, ${alpha})`
+        : `rgba(${205 + Math.round(st.band * 50)}, ${200 - Math.round(st.band * 55)}, 253, ${alpha})`;
+      const size = st.s * (0.6 + drive * 1.8);
+      ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+
+      // bright stars flare when the treble sings
+      if (st.gold && st.s > 1.8 && au.treble > 0.35) {
+        const f = au.treble * st.s * 3.2;
+        ctx.strokeStyle = `rgba(251, 213, 130, ${au.treble * 0.45})`;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x - f, y); ctx.lineTo(x + f, y);
+        ctx.moveTo(x, y - f); ctx.lineTo(x, y + f);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+};
+
+/* ============================================================
+   APP — scene switching, chrome, loop
+   ============================================================ */
+const scenes = [Aura, Espectro, Mare, Constelacao];
+let current = 0;
+
+const dock = document.getElementById("dock");
+scenes.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.innerHTML = `<span class="key">${i + 1}</span>${s.label}`;
+  b.addEventListener("click", () => setScene(i));
+  dock.appendChild(b);
+});
+
+function setScene(i) {
+  current = i;
+  document.body.dataset.theme = scenes[i].theme;
+  document.getElementById("sceneName").textContent = scenes[i].label;
+  [...dock.children].forEach((b, j) => b.classList.toggle("on", j === i));
+  document.body.classList.add("hint-done");
+}
+
+window.addEventListener("keydown", e => {
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= scenes.length) setScene(n - 1);
+});
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 3400);
+}
+
+/* status pill */
+let speakingHold = 0;
+function updateStatus(dt) {
+  const dot = document.getElementById("statusDot");
+  const txt = document.getElementById("statusText");
+  if (AudioEngine.level > 0.06) speakingHold = 0.7;
+  else speakingHold = Math.max(0, speakingHold - dt);
+  const speaking = speakingHold > 0;
+  txt.textContent = AudioEngine.mode === "demo"
+    ? (speaking ? "demo · voz" : "demo")
+    : (speaking ? "voz detectada" : "ouvindo");
+  dot.style.setProperty("--pulse", 1 + AudioEngine.level * 1.6);
+  dot.style.opacity = 0.5 + AudioEngine.level * 0.5;
+}
+
+/* main loop */
+let last = performance.now();
+function frame(now) {
+  const t = now / 1000;
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (W !== window.innerWidth || H !== window.innerHeight) resize();
+  AudioEngine.update(dt, t);
+  scenes[current].draw(t, AudioEngine);
+  updateStatus(dt);
+}
+function tick(now) {
+  frame(now);
+  requestAnimationFrame(tick);
+}
+
+/* gate */
+async function begin(mode) {
+  if (mode === "mic") {
+    try { await AudioEngine.startMic(); }
+    catch (err) {
+      AudioEngine.startDemo();
+      toast("microfone indisponível — modo demo ativado");
+    }
+  } else {
+    AudioEngine.startDemo();
+  }
+  document.getElementById("gate").classList.add("closed");
+  document.body.classList.add("live");
+  setTimeout(() => document.body.classList.add("hint-done"), 7000);
+}
+document.getElementById("btnMic").addEventListener("click", () => begin("mic"));
+document.getElementById("btnDemo").addEventListener("click", () => begin("demo"));
+
+resize();
+setScene(0);
+document.body.classList.remove("hint-done");
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
